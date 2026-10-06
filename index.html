@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light" class="notranslate">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="google" content="notranslate" />
+  <title>稟議書リスト</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.7.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <meta name="robots" content="noindex,nofollow">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWZpbGUtc2VhcmNoLWNvcm5lciBwcmV2aWV3LWljb24iPjxwYXRoIGQ9Ik0xMS4xIDIySDZhMiAyIDAgMCAxLTItMlY0YTIgMiAwIDAgMSAyLTJoOGEyLjQgMi40IDAgMCAxIDEuNzA2LjcwNmwzLjU4OSAzLjU4OEEyLjQgMi40IDAgMCAxIDIwIDh2My4yNSIvPjxwYXRoIGQ9Ik0xNCAydjVhMSAxIDAgMCAwIDEgMWg1Ii8+PHBhdGggZD0ibTIxIDIyLTIuODgtMi44OCIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTciIHI9IjMiLz48L3N2Zz4=" type="image/svg+xml">
+  <style>
+    .ios-toggle {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    .ios-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .ios-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #E9E9EA;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 9999px !important;
+      box-sizing: border-box;
+    }
+    .ios-slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #ffffff;
+      transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50% !important;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    }
+    .ios-toggle input:checked + .ios-slider {
+      background-color: #4CD964;
+    }
+    .ios-toggle input:checked + .ios-slider:before {
+      transform: translateX(22px);
+    }
+  </style>
+</head>
+<body class="bg-base-200 h-screen flex flex-col overflow-hidden notranslate">
+
+  <div id="app" class="flex-1 flex flex-col h-full p-4 max-w-[1600px] mx-auto w-full">
+    
+    <!-- 1. トップバー（ヘッダー・検索・設定） -->
+    <header class="bg-base-100 rounded-box shadow-sm p-4 mb-4 flex-none flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <h1 class="text-lg font-bold flex items-center gap-2">
+          <i data-lucide="text-search" class="w-5 h-5 text-blue-600"></i>
+          稟議書リスト
+        </h1>
+        <span class="text-xs bg-base-200 px-2.5 py-1 rounded-full text-base-content/70">
+          {{ filteredRows.length }} / {{ rows.length }} 件
+        </span>
+      </div>
+
+      <!-- 検索バー -->
+      <div class="flex-1 max-w-md">
+        <div class="relative">
+          <input 
+            v-model="searchQuery" 
+            type="text" 
+            placeholder="キーワード検索" 
+            class="input input-bordered input-sm w-full pl-9 pr-8" 
+            :disabled="loading"
+          />
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-base-content/40"></i>
+          <button v-if="searchQuery" @click="searchQuery = ''" class="btn btn-xs btn-circle btn-ghost absolute right-2 top-1.5">✕</button>
+        </div>
+      </div>
+
+      <!-- コントロール群 (トグルスイッチ & データ更新ボタン) -->
+      <div class="flex items-center gap-4">
+        <!-- アプリ内プレビュートグル（緑色背景・コントロール風） -->
+        <label class="flex items-center gap-2.5 cursor-pointer select-none">
+          <span class="text-xs font-bold text-base-content/80">アプリ内プレビュー</span>
+          <div class="ios-toggle">
+            <input type="checkbox" v-model="inAppPreview" />
+            <span class="ios-slider"></span>
+          </div>
+        </label>
+
+        <!-- 更新ボタン -->
+        <button @click="fetchData" class="btn btn-ghost btn-sm gap-1" :disabled="loading">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          更新
+        </button>
+      </div>
+    </header>
+
+    <!-- ローディング中表示 -->
+    <div v-if="loading" class="flex-1 flex flex-col justify-center items-center bg-base-100 rounded-box shadow-sm">
+      <span class="loading loading-spinner loading-lg text-blue-600"></span>
+      <p class="text-sm text-base-content/60 mt-4">スプレッドシートからデータを読み込み中...</p>
+    </div>
+
+    <!-- 2. メインコンテンツエリア（リスト＋右側プレビュー） -->
+    <div v-else class="flex-1 flex gap-4 overflow-hidden">
+      
+      <!-- 左側：データテーブル -->
+      <div class="flex-1 bg-base-100 rounded-box shadow-sm border border-base-200 flex flex-col overflow-hidden">
+        <div class="overflow-x-auto overflow-y-auto flex-1">
+          <table class="table table-xs md:table-sm w-full table-pin-rows">
+            <!-- テーブルヘッダー -->
+            <thead>
+              <tr class="bg-base-300 text-base-content font-extrabold text-sm border-b-2 border-base-300">
+                <th v-for="key in columnHeaders" :key="key" class="whitespace-nowrap py-3.5 px-4 text-left">
+                  {{ key }}
+                </th>
+                <th v-if="!hasPdfColumn" class="text-right whitespace-nowrap py-3.5 pr-4">PDF表示</th>
+              </tr>
+            </thead>
+            <!-- テーブルボディ -->
+            <tbody>
+              <tr 
+                v-for="(row, index) in filteredRows" 
+                :key="index" 
+                class="hover:bg-blue-50/50 border-b border-base-200 transition-colors"
+                :class="{'bg-blue-100/50': inAppPreview && activeRow === row}"
+              >
+                <!-- スプレッドシート各列の出力 -->
+                <td v-for="key in columnHeaders" :key="key" class="whitespace-nowrap truncate max-w-[200px] px-4" :title="formatCellValue(row[key])">
+                  <!-- 「PDF」列の場合のボタン表示（自動翻訳無効化プロパティ付き） -->
+                  <template v-if="isPdfKey(key)">
+                    <button 
+                      v-if="row._resolvedUrl" 
+                      @click="handleOpenUrl(row)"
+                      translate="no"
+                      class="btn btn-xs bg-blue-600 hover:bg-blue-700 text-white border-none gap-1 font-bold shadow-sm min-w-[64px] justify-center notranslate"
+                    >
+                      <i data-lucide="external-link" class="w-3 h-3 flex-none"></i>
+                      <span translate="no" class="notranslate">{{ buttonText }}</span>
+                    </button>
+                    <span v-else class="text-xs text-base-content/30">-</span>
+                  </template>
+                  <!-- その他の通常セル -->
+                  <template v-else>
+                    {{ formatCellValue(row[key]) }}
+                  </template>
+                </td>
+
+                <!-- PDF列が存在しない場合の右端ボタン -->
+                <td v-if="!hasPdfColumn" class="text-right whitespace-nowrap pr-4">
+                  <button 
+                    v-if="row._resolvedUrl" 
+                    @click="handleOpenUrl(row)"
+                    translate="no"
+                    class="btn btn-xs bg-blue-600 hover:bg-blue-700 text-white border-none gap-1 font-bold shadow-sm min-w-[64px] justify-center notranslate"
+                  >
+                    <i data-lucide="external-link" class="w-3 h-3 flex-none"></i>
+                    <span translate="no" class="notranslate">{{ buttonText }}</span>
+                  </button>
+                  <span v-else class="text-xs text-base-content/30">-</span>
+                </td>
+              </tr>
+              <tr v-if="filteredRows.length === 0">
+                <td :colspan="columnHeaders.length + (hasPdfColumn ? 0 : 1)" class="text-center py-12 text-base-content/50">
+                  データなし
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 右側：PDFプレビューパネル -->
+      <div 
+        v-if="inAppPreview" 
+        class="w-1/2 lg:w-5/12 bg-base-100 rounded-box shadow-sm border border-base-200 flex flex-col overflow-hidden transition-all"
+      >
+        <div class="p-3 bg-base-200/80 border-b flex justify-between items-center flex-none">
+          <span class="text-xs font-bold flex items-center gap-1.5 truncate">
+            <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+            {{ previewTitle || 'プレビュー表示' }}
+          </span>
+          <button @click="closePreview" class="btn btn-xs btn-circle btn-ghost" title="閉じる">✕</button>
+        </div>
+        <div class="flex-1 bg-gray-100 relative">
+          <iframe 
+            v-if="currentUrl" 
+            :src="getEmbedUrl(currentUrl)" 
+            class="w-full h-full border-none"
+          ></iframe>
+          <div v-else class="flex flex-col items-center justify-center h-full text-base-content/40 text-xs gap-2 p-4 text-center">
+            <i data-lucide="mouse-pointer-click" class="w-8 h-8 opacity-40"></i>
+            表示ボタンをクリックすると<br>ここにPDFが表示されます
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted, onUpdated } = Vue;
+
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyyO5njpsl4Cqlcj1R9CBSHeq_IXMHVuDGiG1aeqZonYoRfWxTQBW4W8hUuCVZP6Wqn/exec';
+
+    createApp({
+      setup() {
+        const searchQuery = ref('');
+        const rows = ref([]);
+        const loading = ref(true);
+        const currentUrl = ref('');
+        const previewTitle = ref('');
+        const activeRow = ref(null);
+        const inAppPreview = ref(false);
+        const savedPassword = ref('');
+
+        const fetchData = async () => {
+          loading.value = true;
+          
+          let inputPassword = savedPassword.value;
+          
+          if (!inputPassword) {
+            inputPassword = prompt('パスワードを入力してください:');
+          }
+          
+          if (!inputPassword) {
+            alert('パスワードを入力してください。');
+            loading.value = false;
+            return;
+          }
+          
+          try {
+            const res = await fetch(`${GAS_API_URL}?pass=${encodeURIComponent(inputPassword)}`);
+            const data = await res.json();
+            
+            if (data.error === 'UNAUTHORIZED') {
+              alert('パスワードが正しくありません。アクセスが拒否されました。');
+              savedPassword.value = '';
+              rows.value = [];
+              return;
+            }
+            
+            savedPassword.value = inputPassword;
+            rows.value = data;
+          } catch (e) {
+            alert('データの読み込みに失敗しました。');
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const columnHeaders = computed(() => {
+          if (rows.value.length === 0) return [];
+          return Object.keys(rows.value[0]).filter(k => {
+            const isUrlCol = /_resolvedUrl|^url$|^pdf_url$/i.test(k.trim());
+            return !isUrlCol;
+          });
+        });
+
+        const buttonText = computed(() => {
+          return inAppPreview.value ? '表示' : '開く';
+        });
+
+        const isPdfKey = (key) => {
+          return /pdf/i.test(String(key).trim());
+        };
+
+        const hasPdfColumn = computed(() => {
+          return columnHeaders.value.some(k => isPdfKey(k));
+        });
+
+        const filteredRows = computed(() => {
+          if (!searchQuery.value.trim()) return rows.value;
+          const q = searchQuery.value.toLowerCase();
+          return rows.value.filter(row => {
+            return Object.entries(row).some(([key, val]) => {
+              if (key === '_resolvedUrl') return false;
+              return String(formatCellValue(val)).toLowerCase().includes(q);
+            });
+          });
+        });
+
+        const formatCellValue = (val) => {
+          if (val === null || val === undefined || val === '') return '-';
+          if (typeof val === 'string' && (val.match(/^\d{4}-\d{2}-\d{2}/) || !isNaN(Date.parse(val)))) {
+            const date = new Date(val);
+            if (!isNaN(date.getTime()) && val.length >= 10 && (val.includes('-') || val.includes('/'))) {
+              const yyyy = date.getFullYear();
+              const mm = String(date.getMonth() + 1).padStart(2, '0');
+              const dd = String(date.getDate()).padStart(2, '0');
+              return `${yyyy}/${mm}/${dd}`;
+            }
+          }
+          return val;
+        };
+
+        const handleOpenUrl = (row) => {
+          const url = row._resolvedUrl;
+          if (!url) return;
+
+          if (inAppPreview.value) {
+            currentUrl.value = url;
+            const noVal = row['No'] || row['No.'] || '';
+            previewTitle.value = noVal ? `No. ${noVal}` : 'プレビュー';
+            activeRow.value = row;
+          } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
+        };
+
+        const closePreview = () => {
+          currentUrl.value = '';
+          previewTitle.value = '';
+          activeRow.value = null;
+        };
+
+        const getEmbedUrl = (url) => {
+          if (url.includes('drive.google.com')) {
+            return url.replace(/\/view.*$/, '/preview');
+          }
+          return url;
+        };
+
+        const initIcons = () => {
+          if (window.lucide) lucide.createIcons();
+        };
+
+        onMounted(() => {
+          fetchData();
+          initIcons();
+        });
+
+        onUpdated(initIcons);
+
+        return {
+          searchQuery,
+          rows,
+          filteredRows,
+          columnHeaders,
+          hasPdfColumn,
+          loading,
+          currentUrl,
+          previewTitle,
+          activeRow,
+          inAppPreview,
+          buttonText,
+          fetchData,
+          isPdfKey,
+          formatCellValue,
+          handleOpenUrl,
+          closePreview,
+          getEmbedUrl
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
