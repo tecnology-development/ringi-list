@@ -52,12 +52,45 @@
     .ios-toggle input:checked + .ios-slider:before {
       transform: translateX(22px);
     }
+    input:focus::placeholder {
+      color: transparent;
   </style>
 </head>
 <body class="bg-base-200 h-screen flex flex-col overflow-hidden notranslate">
 
   <div id="app" class="flex-1 flex flex-col h-full p-4 max-w-[1600px] mx-auto w-full">
-    
+
+    <!-- 0. パスワード入力用 全画面モーダル（認証前は後ろの画面を一切見せない） -->
+    <div v-if="!isAuthenticated" class="fixed inset-0 z-50 bg-base-200 flex items-center justify-center p-4">
+      <div class="bg-base-100 p-8 rounded-2xl shadow-xl max-w-sm w-full border border-base-300 flex flex-col items-center gap-4">
+        <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 mb-1">
+          <i data-lucide="lock" class="w-6 h-6"></i>
+        </div>
+        <h2 class="text-xl font-bold text-center">アクセス制限</h2>
+        <p class="text-xs text-base-content/60 text-center">閲覧するにはパスワードを入力してください</p>
+
+        <form @submit.prevent="submitPassword" class="w-full flex flex-col gap-3 mt-2">
+          <input 
+            v-model="inputPassword" 
+            type="password" 
+            placeholder="パスワード" 
+            class="input input-bordered w-full text-center tracking-widest"
+            required
+            autofocus
+            :disabled="authLoading"
+          />
+          <button 
+            type="submit" 
+            class="btn btn-primary bg-blue-600 hover:bg-blue-700 text-white border-none w-full gap-2"
+            :disabled="authLoading"
+          >
+            <span v-if="authLoading" class="loading loading-spinner loading-xs"></span>
+            <span v-else>ログイン</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
     <!-- 1. トップバー（ヘッダー・検索・設定） -->
     <header class="bg-base-100 rounded-box shadow-sm p-4 mb-4 flex-none flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-3">
@@ -87,7 +120,6 @@
 
       <!-- コントロール群 (トグルスイッチ & データ更新ボタン) -->
       <div class="flex items-center gap-4">
-        <!-- アプリ内プレビュートグル（緑色背景・コントロール風） -->
         <label class="flex items-center gap-2.5 cursor-pointer select-none">
           <span class="text-xs font-bold text-base-content/80">アプリ内プレビュー</span>
           <div class="ios-toggle">
@@ -96,7 +128,6 @@
           </div>
         </label>
 
-        <!-- 更新ボタン -->
         <button @click="fetchData" class="btn btn-ghost btn-sm gap-1" :disabled="loading">
           <i data-lucide="refresh-cw" class="w-4 h-4"></i>
           更新
@@ -120,8 +151,23 @@
             <!-- テーブルヘッダー -->
             <thead>
               <tr class="bg-base-300 text-base-content font-extrabold text-sm border-b-2 border-base-300">
-                <th v-for="key in columnHeaders" :key="key" class="whitespace-nowrap py-3.5 px-4 text-left">
-                  {{ key }}
+                <th 
+                  v-for="key in columnHeaders" 
+                  :key="key" 
+                  @click="isSortable(key) && toggleSort(key)"
+                  :class="[
+                    'whitespace-nowrap py-3.5 px-4 text-left select-none transition-colors', 
+                    isSortable(key) ? 'cursor-pointer hover:bg-base-200' : ''
+                  ]"
+                >
+                  <div class="flex items-center gap-1">
+                    <span>{{ key }}</span>
+                    <!-- ソートアイコン表示部分 -->
+                    <span v-if="isSortable(key)" class="text-xs inline-flex flex-col leading-none">
+                      <span :class="sortKey === key && sortOrder === 'asc' ? 'text-blue-600 font-bold opacity-100' : 'opacity-20'">∧</span>
+                      <span :class="sortKey === key && sortOrder === 'desc' ? 'text-blue-600 font-bold opacity-100' : 'opacity-20'">∨</span>
+                    </span>
+                  </div>
                 </th>
                 <th v-if="!hasPdfColumn" class="text-right whitespace-nowrap py-3.5 pr-4">PDF表示</th>
               </tr>
@@ -136,7 +182,6 @@
               >
                 <!-- スプレッドシート各列の出力 -->
                 <td v-for="key in columnHeaders" :key="key" class="whitespace-nowrap truncate max-w-[200px] px-4" :title="formatCellValue(row[key])">
-                  <!-- 「PDF」列の場合のボタン表示（自動翻訳無効化プロパティ付き） -->
                   <template v-if="isPdfKey(key)">
                     <button 
                       v-if="row._resolvedUrl" 
@@ -149,13 +194,11 @@
                     </button>
                     <span v-else class="text-xs text-base-content/30">-</span>
                   </template>
-                  <!-- その他の通常セル -->
                   <template v-else>
                     {{ formatCellValue(row[key]) }}
                   </template>
                 </td>
 
-                <!-- PDF列が存在しない場合の右端ボタン -->
                 <td v-if="!hasPdfColumn" class="text-right whitespace-nowrap pr-4">
                   <button 
                     v-if="row._resolvedUrl" 
@@ -207,7 +250,7 @@
     </div>
   </div>
 
-  <script>
+ <script>
     const { createApp, ref, computed, onMounted, onUpdated } = Vue;
 
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyyO5njpsl4Cqlcj1R9CBSHeq_IXMHVuDGiG1aeqZonYoRfWxTQBW4W8hUuCVZP6Wqn/exec';
@@ -216,52 +259,73 @@
       setup() {
         const searchQuery = ref('');
         const rows = ref([]);
-        const loading = ref(true);
+        const loading = ref(false);
         const currentUrl = ref('');
         const previewTitle = ref('');
         const activeRow = ref(null);
         const inAppPreview = ref(false);
-        const savedPassword = ref('');
 
-        const fetchData = async () => {
-          loading.value = true;
-          
-          let inputPassword = savedPassword.value;
-          
-          if (!inputPassword) {
-            inputPassword = prompt('パスワードを入力してください:');
-          }
-          
-          if (!inputPassword) {
-            alert('パスワードを入力してください。');
-            loading.value = false;
-            return;
-          }
-          
+        // 認証用ステート
+        const isAuthenticated = ref(false);
+        const inputPassword = ref('');
+        const savedPassword = ref('');
+        const authLoading = ref(false);
+
+        // ソート用の状態管理
+        const sortKey = ref('');
+        const sortOrder = ref('');
+        
+        const isSortable = (key) => {
+          return !/備考|pdf/i.test(String(key).trim());
+        };
+
+        // パスワード送信処理
+        const submitPassword = async () => {
+          if (!inputPassword.value) return;
+          authLoading.value = true;
+
           try {
-            const res = await fetch(`${GAS_API_URL}?pass=${encodeURIComponent(inputPassword)}`);
+            const res = await fetch(`${GAS_API_URL}?pass=${encodeURIComponent(inputPassword.value)}`);
             const data = await res.json();
-            
-            if (data.error === 'UNAUTHORIZED') {
-              alert('パスワードが正しくありません。アクセスが拒否されました。');
-              savedPassword.value = '';
-              rows.value = [];
+
+            if (data && data.error === 'UNAUTHORIZED') {
+              alert('パスワードが正しくありません。');
+              inputPassword.value = '';
+              authLoading.value = false;
               return;
             }
-            
-            savedPassword.value = inputPassword;
+
+            savedPassword.value = inputPassword.value;
             rows.value = data;
+            isAuthenticated.value = true; // 認証成功後に画面を表示
           } catch (e) {
             alert('データの読み込みに失敗しました。');
+          } finally {
+            authLoading.value = false;
+          }
+        };
+
+        // 更新ボタン等の再取得処理
+        const fetchData = async () => {
+          if (!savedPassword.value) return;
+          loading.value = true;
+          try {
+            const res = await fetch(`${GAS_API_URL}?pass=${encodeURIComponent(savedPassword.value)}`);
+            const data = await res.json();
+            rows.value = data;
+          } catch (e) {
+            alert('データの更新に失敗しました。');
           } finally {
             loading.value = false;
           }
         };
 
+        /* --- 以下、columnHeaders や filteredRows などの既存ロジックはそのまま --- */
+
         const columnHeaders = computed(() => {
           if (rows.value.length === 0) return [];
           return Object.keys(rows.value[0]).filter(k => {
-            const isUrlCol = /_resolvedUrl|^url$|^pdf_url$/i.test(k.trim());
+            const isUrlCol = /_resolvedUrl|^url$\vert{}^pdf_url$/i.test(k.trim());
             return !isUrlCol;
           });
         });
@@ -278,15 +342,69 @@
           return columnHeaders.value.some(k => isPdfKey(k));
         });
 
+        const toggleSort = (key) => {
+          if (sortKey.value !== key) {
+            sortKey.value = key;
+            sortOrder.value = 'asc';
+          } else {
+            if (sortOrder.value === 'asc') {
+              sortOrder.value = 'desc';
+            } else if (sortOrder.value === 'desc') {
+              sortKey.value = '';
+              sortOrder.value = '';
+            } else {
+              sortOrder.value = 'asc';
+            }
+          }
+        };
+
+        const compareValues = (valA, valB, order) => {
+          valA = valA ?? '';
+          valB = valB ?? '';
+
+          const numA = parseFloat(valA);
+          const numB = parseFloat(valB);
+          if (!isNaN(numA) && !isNaN(numB) && String(numA) === String(valA).trim()) {
+            return (numA - numB) * order;
+          }
+
+          const dateA = Date.parse(valA);
+          const dateB = Date.parse(valB);
+          if (!isNaN(dateA) && !isNaN(dateB) && String(valA).length >= 8) {
+            return (dateA - dateB) * order;
+          }
+
+          return String(valA).localeCompare(String(valB), 'ja', { numeric: true }) * order;
+        };
+
         const filteredRows = computed(() => {
-          if (!searchQuery.value.trim()) return rows.value;
-          const q = searchQuery.value.toLowerCase();
-          return rows.value.filter(row => {
-            return Object.entries(row).some(([key, val]) => {
-              if (key === '_resolvedUrl') return false;
-              return String(formatCellValue(val)).toLowerCase().includes(q);
+          let list = [...rows.value];
+
+          if (searchQuery.value.trim()) {
+            const q = searchQuery.value.toLowerCase();
+            list = list.filter(row => {
+              return Object.entries(row).some(([key, val]) => {
+                if (key === '_resolvedUrl') return false;
+                return String(formatCellValue(val)).toLowerCase().includes(q);
+              });
             });
-          });
+          }
+
+          if (sortKey.value && sortOrder.value) {
+            const primaryKey = sortKey.value;
+            const primaryOrder = sortOrder.value === 'asc' ? 1 : -1;
+            const noKey = columnHeaders.value.find(k => /^no\.?$/i.test(k.trim())) || '';
+
+            list.sort((a, b) => {
+              const diff = compareValues(a[primaryKey], b[primaryKey], primaryOrder);
+              if (diff === 0 && noKey && primaryKey !== noKey) {
+                return compareValues(a[noKey], b[noKey], primaryOrder);
+              }
+              return diff;
+            });
+          }
+
+          return list;
         });
 
         const formatCellValue = (val) => {
@@ -335,7 +453,6 @@
         };
 
         onMounted(() => {
-          fetchData();
           initIcons();
         });
 
@@ -353,12 +470,21 @@
           activeRow,
           inAppPreview,
           buttonText,
+          sortKey,
+          sortOrder,
+          toggleSort,
+          isSortable,
           fetchData,
           isPdfKey,
           formatCellValue,
           handleOpenUrl,
           closePreview,
-          getEmbedUrl
+          getEmbedUrl,
+          // 追加分
+          isAuthenticated,
+          inputPassword,
+          authLoading,
+          submitPassword
         };
       }
     }).mount('#app');
